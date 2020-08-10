@@ -12,7 +12,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Elastic\\": "src/Elastic/"
+            "Elastic\\": "src/"
         }
     }
 }
