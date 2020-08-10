@@ -57,12 +57,11 @@ $request = [
     'vendor_name.keyword' => 'Samsung'
 ];
 
-
-$Search = new Search($modx);
+$Search = new Search();
 if ($Search->initialize('products')) {
-
-    $response = $Search->setPathFields(MODX_BASE_PATH . 'test_products.map.inc.php');
-
+    $response = $Search->setFields([
+        '' => ''
+    ]);
     try {
         $Search->criteria->reset();
         $params = $Search->getDefaultParams();
