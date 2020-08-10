@@ -5,6 +5,7 @@
  * Date: 10.08.2020
  * Time: 17:56
  */
+
 namespace App\Elastic;
 
 use App\Elastic\Aggregations;
@@ -16,19 +17,18 @@ use Exception;
 
 class Search
 {
-    private $index_name = null;
-    private $index_type = null;
-    protected $pathFields = null;
+    /* @var string|null $index_name */
+    private $index_name;
+    /* @var string|null $index_type */
+    private $index_type;
 
-    /* @var array|null $index_meta_map */
-    private $index_meta_map = null;
+    /* @var array|null $fields */
+    private $fields = null;
 
-    public $prefix = null;
-
-    /* @var Aggregations $aggregations */
+    /* @var Aggregations|null $aggregations */
     public $aggregations;
 
-    /* @var Criteria $criteria */
+    /* @var Criteria|null $criteria */
     public $criteria;
     /* @var Suggestions $suggestions */
     public $suggestions;
@@ -36,17 +36,60 @@ class Search
     /* @var Client|null $client */
     public $client = null;
 
-    public function initialize($index_name = null, $index_type = null)
+    /**
+     * @return static
+     */
+    public static function create()
+    {
+        return new static();
+    }
+
+    /**
+     * @param null $index_name
+     * @param null $index_type
+     * @return Search
+     */
+    public function initialize($index_name = null, $index_type = null): Search
     {
         $this->client = new Client();
         $this->aggregations = new Aggregations($this);
         $this->criteria = new Criteria($this);
         $this->suggestions = new Suggestions($this);
         $this->setIndex($index_name, $index_type);
-        return true;
+        return $this;
+    }
+
+    /**
+     * @param array $fields
+     * @return bool
+     */
+    public function setFields($fields = [])
+    {
+        if (is_array($fields)) {
+            $this->fields = $fields;
+            return true;
+        }
+        return false;
     }
 
 
+    /**
+     * Вернет карту полей с типом поля и фильтром
+     * @return array|null
+     */
+    public function getFields()
+    {
+        $fields = null;
+        if (is_array($this->fields)) {
+            $fields = $this->fields;
+        }
+        return $fields;
+    }
+
+    /**
+     * @param false $isCount - подсчет количества
+     * @return array
+     */
     public function getDefaultParams($isCount = false)
     {
         $params = [];
@@ -67,7 +110,7 @@ class Search
     }
 
     /**
-     * @return null
+     * @return string|null
      */
     public function getIndexName()
     {
@@ -75,7 +118,7 @@ class Search
     }
 
     /**
-     * @return null
+     * @return string|null
      */
     public function getIndexType()
     {
@@ -91,48 +134,6 @@ class Search
         $this->index_name = $index_name;
         $this->index_type = $index_type;
     }
-
-    public function loadClient()
-    {
-        return $this->client;
-    }
-
-    public function process()
-    {
-        return true;
-    }
-
-    /**
-     * @param $path
-     * @return bool
-     */
-    public function setPathFields($path)
-    {
-        if (file_exists($path)) {
-            $this->pathFields = $path;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Вернет карту полей с типом поля и фильтром
-     * @return array|null
-     */
-    public function getFields()
-    {
-        $fields = null;
-        if (!is_null($this->pathFields)) {
-            if (is_null($this->index_meta_map)) {
-                $this->index_meta_map = include $this->pathFields;
-            }
-            if (is_array($this->index_meta_map)) {
-                $fields = $this->index_meta_map['fieldMeta'];
-            }
-        }
-        return $fields;
-    }
-
 
     /**
      * Вернет карту полей с типом поля и фильтром
@@ -187,7 +188,7 @@ class Search
      */
     public function exists()
     {
-        $response = $this->loadClient()->process('exists', ['index' => $this->index_name]);
+        $response = $this->client->process('exists', ['index' => $this->index_name]);
         if (!is_bool($response)) {
             return false;
         }
@@ -219,5 +220,14 @@ class Search
     public function seoAgregations()
     {
         return new SeoAgregations($this);
+    }
+
+
+    /**
+     * @return bool
+     */
+    public function isAjax()
+    {
+        return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest';
     }
 }

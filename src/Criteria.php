@@ -5,6 +5,7 @@
  * Date: 10.08.2020
  * Time: 17:56
  */
+
 namespace App\Elastic;
 
 class Criteria
@@ -13,12 +14,24 @@ class Criteria
     public $es;
     protected $criteria = array();
     protected $selected = array();
+    protected $body = array();
 
-    public $body = array();
+    /* @var array $_request */
+    protected $_request = array();
+    protected $keyPostFilter = 'post_filter';
 
     public function __construct(Search $Search)
     {
         $this->es = $Search;
+    }
+
+    /**
+     * Сброс переменных
+     */
+    public function reset()
+    {
+        $this->body = array();
+        $this->_request = array();
     }
 
     public function getBody()
@@ -31,17 +44,15 @@ class Criteria
         return $body;
     }
 
-
+    /**
+     * @param $values
+     * @return array
+     */
     public function clearValues($values)
     {
         $values = array_filter($values);
         $values = array_unique($values);
         return array_values($values);
-    }
-
-    public function setBody($params)
-    {
-        return $this->body;
     }
 
     protected $parent_id = null;
@@ -51,6 +62,10 @@ class Criteria
         $this->parent_id = $parent_id;
     }
 
+    /**
+     * @param false $build
+     * @return array
+     */
     public function getDefaultRequest($build = false)
     {
         #if (!$build) {
@@ -60,6 +75,9 @@ class Criteria
         return $request;
     }
 
+    /**
+     * @return array
+     */
     public function getPostCriteria()
     {
         $criteria = $this->getBody();
@@ -73,17 +91,6 @@ class Criteria
         return $arrays;
     }
 
-    /* @var array $_request */
-    protected $_request = array();
-
-    /**
-     * Сброс переменных
-     */
-    public function reset()
-    {
-        $this->body = array();
-        $this->_request = array();
-    }
 
     /**
      * Записывам параметры в $_REQUEST и $_GET
@@ -98,7 +105,10 @@ class Criteria
         }
     }
 
-
+    /**
+     * @param false $build
+     * @return array
+     */
     public function process($build = false)
     {
         $fieldsFilters = $this->es->getFields();
@@ -161,13 +171,13 @@ class Criteria
                         if ($filter == 'parent') {
                             $this->addQueryBoolFilter($filter, array(
                                 'terms' => array(
-                                    $filter.'.keyword' => $this->clearValues($values)
+                                    $filter . '.keyword' => $this->clearValues($values)
                                 )
                             ));
                         } else {
                             $this->addPostFilterBoolFilter($filter, array(
                                 'terms' => array(
-                                    $filter.'.keyword' => $this->clearValues($values)
+                                    $filter . '.keyword' => $this->clearValues($values)
                                 )
                             ));
                         }
@@ -182,9 +192,7 @@ class Criteria
         $this->setFilterRanges($request);
         $this->setParents($request);
 
-        $this->setSale($request);
-        $this->setNew($request);
-        $this->setDefective($request);
+        #$this->setBoolean($request);
 
         $this->addQueryBoolFilter('published', array(
             'term' => array(
@@ -194,8 +202,11 @@ class Criteria
         return $this->getBody();
     }
 
-
-    public function addQueryBoolFilter($filter, $params)
+    /**
+     * @param string $filter
+     * @param array $params
+     */
+    public function addQueryBoolFilter($filter, $params = [])
     {
         $this->body['query']['bool']['filter'][$filter] = $params;
         if (array_key_exists('terms', $params) and is_array($params['terms'])) {
@@ -206,7 +217,6 @@ class Criteria
 
     }
 
-    protected $keyPostFilter = 'post_filter';
 
     public function setKeyPostFilter($newKey)
     {
@@ -215,7 +225,11 @@ class Criteria
         }
     }
 
-    public function addPostFilterBoolFilter($filter, $params)
+    /**
+     * @param string $filter
+     * @param $params
+     */
+    public function addPostFilterBoolFilter($filter, $params = [])
     {
         if (!isset($this->body[$this->keyPostFilter])) {
             $this->body = array(
@@ -234,7 +248,6 @@ class Criteria
             }
         }
     }
-
 
 
     public function setCriteria($criteria)
@@ -291,16 +304,12 @@ class Criteria
         $this->selected[$field] = $this->clearValues($values);
     }
 
+
     /**
+     * @param array $request
      * @return bool
      */
-    public function isAjax()
-    {
-        return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest';
-    }
-
-
-    public function setSale($request)
+    public function setBoolean($request = [])
     {
         $sale = false;
         if (strripos($request['marker'], 'sale') !== false) {
@@ -316,39 +325,11 @@ class Criteria
         return true;
     }
 
-    public function setNew($request)
-    {
-        $sale = false;
-        if (strripos($request['marker'], 'new') !== false) {
-            $sale = true;
-        }
-        if ($sale) {
-            $this->addQueryBoolFilter('new', array(
-                'term' => array(
-                    'new' => true
-                )
-            ));
-        }
-        return true;
-    }
 
-    public function setDefective($request)
-    {
-        $sale = false;
-        if (strripos($request['marker'], 'defective') !== false) {
-            $sale = true;
-        }
-        if ($sale) {
-            $this->addQueryBoolFilter('defective', array(
-                'term' => array(
-                    'defective' => true
-                )
-            ));
-        }
-        return true;
-    }
-
-    public function setFilterRanges($request)
+    /**
+     * @param array $request
+     */
+    public function setFilterRanges($request = [])
     {
         $fields = $this->es->getFields();
         $filterRanges = array();
@@ -371,38 +352,20 @@ class Criteria
                 ));
             }
         }
-
     }
 
     /**
-     * @param $request
+     * @param array $request
      * @return bool
      */
-    public function setParents($request)
+    public function setParents($request = [])
     {
         $requested = array();
         $mode = 'default';
-
-        if (!empty($request['sub_category'])) {
-            $mode = 'sub_category';
-        } else if (!empty($request['parent']) or !empty($request['category'])) {
-            $mode = 'category';
-        } else if (!empty($request['category'])) {
-            $mode = 'category';
-        }
-
         switch ($mode) {
             case 'default':
-                $category_id = $this->isAjax() ? (int)$_POST['pageId'] : 0;
+                $category_id = $this->es->isAjax() ? (int)$_POST['pageId'] : 0;
                 $requested[] = $category_id;
-                break;
-            case 'category':
-                $sub_category = explode(',', $request['category']);
-                $requested = array_merge($requested, $sub_category);
-                break;
-            case 'sub_category':
-                $sub_category = explode(',', $request['sub_category']);
-                $requested = array_merge($requested, $sub_category);
                 break;
             default:
                 break;
