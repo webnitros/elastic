@@ -14,7 +14,7 @@ class Criteria
     public $es;
     protected $criteria = array();
     protected $selected = array();
-    protected $body = array();
+    public $body = array();
 
     /* @var array $_request */
     protected $_request = array();
