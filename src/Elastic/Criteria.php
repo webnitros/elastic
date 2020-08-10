@@ -1,0 +1,417 @@
+<?php
+/**
+ * Created by Andrey Stepanenko.
+ * User: webnitros
+ * Date: 10.08.2020
+ * Time: 17:56
+ */
+namespace App\Elastic;
+
+class Criteria
+{
+    /* @var Search $es */
+    public $es;
+    protected $criteria = array();
+    protected $selected = array();
+
+    public $body = array();
+
+    public function __construct(Search $Search)
+    {
+        $this->es = $Search;
+    }
+
+    public function getBody()
+    {
+        $body = $this->body;
+        if ($this->keyPostFilter == 'post_filter') {
+            $body['post_filter']['bool']['filter'] = !empty($this->body['post_filter']['bool']['filter']) ? array_values($this->body['post_filter']['bool']['filter']) : array();
+        }
+        $body['query']['bool']['filter'] = !empty($this->body['query']['bool']['filter']) ? array_values($this->body['query']['bool']['filter']) : array();
+        return $body;
+    }
+
+
+    public function clearValues($values)
+    {
+        $values = array_filter($values);
+        $values = array_unique($values);
+        return array_values($values);
+    }
+
+    public function setBody($params)
+    {
+        return $this->body;
+    }
+
+    protected $parent_id = null;
+
+    public function setParent($parent_id)
+    {
+        $this->parent_id = $parent_id;
+    }
+
+    public function getDefaultRequest($build = false)
+    {
+        #if (!$build) {
+        // Не добавляем при сборе значений для фильтров
+        $request['availability'] = true;
+        #}
+        return $request;
+    }
+
+    public function getPostCriteria()
+    {
+        $criteria = $this->getBody();
+        $filters = $criteria[$this->keyPostFilter]['bool']['filter'];
+
+        $arrays = array();
+        foreach ($filters as $filter) {
+            $arrays[] = $filter;
+        }
+
+        return $arrays;
+    }
+
+    /* @var array $_request */
+    protected $_request = array();
+
+    /**
+     * Сброс переменных
+     */
+    public function reset()
+    {
+        $this->body = array();
+        $this->_request = array();
+    }
+
+    /**
+     * Записывам параметры в $_REQUEST и $_GET
+     * @param array $params
+     */
+    public function setRequest($params = array())
+    {
+        $this->body = array();
+        $this->_request = array();
+        foreach ($params as $field => $value) {
+            $this->_request[$field] = $value;
+        }
+    }
+
+
+    public function process($build = false)
+    {
+        $fieldsFilters = $this->es->getFields();
+        $request = $this->getDefaultRequest($build);
+        foreach ($this->_request as $filter => $requested) {
+            if (array_key_exists($filter, $fieldsFilters)) {
+                $request[$filter] = $requested;
+            }
+        }
+
+        foreach ($request as $filter => $requested) {
+            $typeFilter = null;
+            if (!array_key_exists($filter, $fieldsFilters)) {
+                continue;
+            }
+            $meta = $fieldsFilters[$filter];
+            $typeFilter = $meta['filter'];
+            $typePhp = $meta['type'];
+            if (!$typeFilter) {
+                continue;
+            }
+            switch ($typeFilter) {
+                case 'term':
+                    $values = null;
+                    switch ($typePhp) {
+                        case 'boolean':
+                            $values = (boolean)$requested;
+                            break;
+                        default:
+                            $values = $requested;
+                            break;
+                    }
+
+                    if ($values) {
+                        $this->addQueryBoolFilter($filter, array(
+                            'term' => array(
+                                $filter => $values
+                            )
+                        ));
+                    }
+                    break;
+                case 'range':
+                    $values = explode(',', $requested);
+                    $this->addPostFilterBoolFilter($filter, array(
+                        'range' => array(
+                            $filter => array(
+                                'gte' => $values[0],
+                                'lte' => $values[1]
+                            )
+                        )
+                    ));
+                    break;
+                case 'terms':
+                    if ($filter == 'marker' or $filter == 'sub_category' or $filter == 'category') {
+
+                    } else {
+                        $values = explode(',', $requested);
+                        $values = array_filter($values);
+                        $values = array_unique($values);
+                        if ($filter == 'parent') {
+                            $this->addQueryBoolFilter($filter, array(
+                                'terms' => array(
+                                    $filter.'.keyword' => $this->clearValues($values)
+                                )
+                            ));
+                        } else {
+                            $this->addPostFilterBoolFilter($filter, array(
+                                'terms' => array(
+                                    $filter.'.keyword' => $this->clearValues($values)
+                                )
+                            ));
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+            #$this->filter_operations++;
+        }
+
+        $this->setFilterRanges($request);
+        $this->setParents($request);
+
+        $this->setSale($request);
+        $this->setNew($request);
+        $this->setDefective($request);
+
+        $this->addQueryBoolFilter('published', array(
+            'term' => array(
+                'published' => true
+            )
+        ));
+        return $this->getBody();
+    }
+
+
+    public function addQueryBoolFilter($filter, $params)
+    {
+        $this->body['query']['bool']['filter'][$filter] = $params;
+        if (array_key_exists('terms', $params) and is_array($params['terms'])) {
+            foreach ($params['terms'] as $field => $value) {
+                $this->setSelectedValue($field, $value);
+            }
+        }
+
+    }
+
+    protected $keyPostFilter = 'post_filter';
+
+    public function setKeyPostFilter($newKey)
+    {
+        if ($newKey == 'query') {
+            $this->keyPostFilter = $newKey;
+        }
+    }
+
+    public function addPostFilterBoolFilter($filter, $params)
+    {
+        if (!isset($this->body[$this->keyPostFilter])) {
+            $this->body = array(
+                $this->keyPostFilter => array(
+                    'bool' => array(
+                        'filter' => array()
+                    )
+                )
+            );
+        }
+
+        $this->body[$this->keyPostFilter]['bool']['filter'][$filter] = $params;
+        if (!empty($params['terms']) and is_array($params['terms'])) {
+            foreach ($params['terms'] as $field => $value) {
+                $this->setSelectedValue($field, $value);
+            }
+        }
+    }
+
+
+
+    public function setCriteria($criteria)
+    {
+        $this->criteria = $criteria;
+    }
+
+    /**
+     * Вернет критерии запроса
+     * @return array
+     */
+    public function getCriteria()
+    {
+        return $this->criteria;
+    }
+
+    /**
+     * @return array
+     */
+    public function getSelections()
+    {
+        $selections = $this->selected;
+        return $selections;
+    }
+
+    /**
+     * @param $field
+     * @return array|null
+     */
+    public function getSelected($field)
+    {
+        $selected = $this->getSelections();
+        if (array_key_exists($field, $selected)) {
+            return $selected[$field];
+        }
+        return null;
+    }
+
+    public function setSelectedValue($field, $value)
+    {
+        if (!is_array($value)) {
+            echo '<pre>';
+            print_r('is not array ' . $field);
+            die;
+        }
+
+        $values = null;
+        if (array_key_exists($field, $this->selected)) {
+            $values = array_merge($this->selected[$field], $value);
+        } else {
+            $values = $value;
+        }
+
+        $this->selected[$field] = $this->clearValues($values);
+    }
+
+    /**
+     * @return bool
+     */
+    public function isAjax()
+    {
+        return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest';
+    }
+
+
+    public function setSale($request)
+    {
+        $sale = false;
+        if (strripos($request['marker'], 'sale') !== false) {
+            $sale = true;
+        }
+        if ($sale) {
+            $this->addQueryBoolFilter('sale', array(
+                'term' => array(
+                    'sale' => true
+                )
+            ));
+        }
+        return true;
+    }
+
+    public function setNew($request)
+    {
+        $sale = false;
+        if (strripos($request['marker'], 'new') !== false) {
+            $sale = true;
+        }
+        if ($sale) {
+            $this->addQueryBoolFilter('new', array(
+                'term' => array(
+                    'new' => true
+                )
+            ));
+        }
+        return true;
+    }
+
+    public function setDefective($request)
+    {
+        $sale = false;
+        if (strripos($request['marker'], 'defective') !== false) {
+            $sale = true;
+        }
+        if ($sale) {
+            $this->addQueryBoolFilter('defective', array(
+                'term' => array(
+                    'defective' => true
+                )
+            ));
+        }
+        return true;
+    }
+
+    public function setFilterRanges($request)
+    {
+        $fields = $this->es->getFields();
+        $filterRanges = array();
+        foreach ($fields as $field => $meta) {
+            if ($meta['filter'] == 'range') {
+                $filterRanges[$field] = 1;
+            }
+        }
+
+        foreach ($request as $field => $values) {
+            if (array_key_exists($field, $filterRanges)) {
+                $values = explode(',', $values);
+                $this->addPostFilterBoolFilter($field, array(
+                    'range' => array(
+                        $field => array(
+                            'gte' => $values[0],
+                            'lte' => $values[1],
+                        )
+                    )
+                ));
+            }
+        }
+
+    }
+
+    /**
+     * @param $request
+     * @return bool
+     */
+    public function setParents($request)
+    {
+        $requested = array();
+        $mode = 'default';
+
+        if (!empty($request['sub_category'])) {
+            $mode = 'sub_category';
+        } else if (!empty($request['parent']) or !empty($request['category'])) {
+            $mode = 'category';
+        } else if (!empty($request['category'])) {
+            $mode = 'category';
+        }
+
+        switch ($mode) {
+            case 'default':
+                $category_id = $this->isAjax() ? (int)$_POST['pageId'] : 0;
+                $requested[] = $category_id;
+                break;
+            case 'category':
+                $sub_category = explode(',', $request['category']);
+                $requested = array_merge($requested, $sub_category);
+                break;
+            case 'sub_category':
+                $sub_category = explode(',', $request['sub_category']);
+                $requested = array_merge($requested, $sub_category);
+                break;
+            default:
+                break;
+        }
+        if ((is_array($requested) and count($requested) == 1) and $requested[0] == 6) {
+            return false;
+        }
+        return true;
+    }
+
+
+}

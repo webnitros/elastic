@@ -1,0 +1,18 @@
+{
+    "name": "webnitros/elastic",
+    "description": "Elastic for MODX",
+    "authors": [
+        {
+            "name": "Andrey Stepanenko",
+            "email": "info@bustep.ru"
+        }
+    ],
+    "require": {
+        "elasticsearch/elasticsearch": "v7.8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Elastic\\": "src/Elastic/"
+        }
+    }
+}
