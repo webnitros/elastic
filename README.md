@@ -113,7 +113,7 @@ if ($Search->initialize('products')) {
 }
 ```
 
-## Подключение 
+## Подключение composer
 
 в composer
 ```
